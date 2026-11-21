@@ -1,8 +1,14 @@
 # ClauseIQ — AI Document Review
 
-Clause is a document review workspace for the supplied Northwind Analytics / Brightline master services agreement. Reviewers can inspect risks alongside the contract, record decisions and comments, apply verified replacements, and export their review.
+ClauseIQ is a document review workspace for the supplied Northwind Analytics / Brightline master services agreement. Reviewers can inspect risks alongside the contract, record decisions and comments, apply verified replacements, and export their review.
 
 The assessment's original **24 findings** are available immediately. Optional Gemini integration generates fresh findings, drafts replacement wording, and answers questions about a selected finding. An API key is only needed for these optional features.
+
+## Live demo
+
+Open **[ClauseIQ on Render](https://clauseiq-w59n.onrender.com)** in any modern browser. Visitors do not need Docker, Node.js, an installation, or their own Gemini key. The hosted backend has Gemini configured privately.
+
+The Render service uses the free plan, so the first visit after inactivity may take around a minute while it wakes up. Review state stays in the current browser; localhost progress does not transfer to the hosted URL.
 
 ## Quick start with Docker — macOS and Windows
 
@@ -110,7 +116,8 @@ A missing clause has no existing text to replace. Its proposed wording is shown 
 - **Overlapping annotations:** split text into segments without duplicating content. Paragraph markers provide explicit navigation when several findings share text.
 - **Conflicting replacements:** overlapping edits cannot be applied together. Undo the earlier edit before applying the alternative. Cross-paragraph source spans are supported. In changed paragraphs, other findings remain accessible through paragraph markers even when original inline highlights are no longer displayed.
 - **Node backend:** proxies Gemini requests and keeps the key private. Review data remains in browser storage. `/api/health` reports configuration, `/api/analyze` generates findings, `/api/suggest` drafts wording, and `/api/ask` handles questions.
-- **Docker:** a Node API container and an unprivileged Nginx frontend container. Nginx proxies API requests. Compose exposes the frontend on localhost and keeps the API inside the container network.
+- **Local Docker Compose:** a Node API container and an unprivileged Nginx frontend container. Nginx proxies API requests. Compose exposes the frontend on localhost and keeps the API inside the container network.
+- **Render:** one Node container built with `Dockerfile.render`. `server/production.mjs` serves the built frontend and delegates `/api` requests to the Gemini backend on the same origin. It binds to `0.0.0.0` and Render's `PORT`, with `/health` for health checks.
 
 The three-panel layout was chosen to keep the review queue, evidence, and explanation together. A static JSON-only implementation would meet the core assessment; the small backend enables optional live AI without exposing credentials. Server-side review storage was deferred because the exercise explicitly allows local state.
 
@@ -133,7 +140,7 @@ npm run test:e2e
 ```
 
 - **11 unit tests:** quote recovery, invalid anchors, multi-paragraph references, overlapping annotations, saved decisions, working-copy replacements, and conflicts.
-- **7 API tests:** missing credentials, request validation, origin checks, provider requests, analysis normalization, and replacement generation.
+- **8 API/production tests:** missing credentials, request validation, origin checks, provider requests, analysis normalization, replacement generation, and production frontend/API/health routing with source-file protection.
 - **4 browser tests:** review decisions, comments, filters, mobile layout, applying/undoing edits, fresh findings, replacement generation, source switching, centered confirmation dialogs, cancellation, persistence, and export downloads.
 
 Automated Gemini tests use mocked responses and do not require a key. Live analysis and replacement generation have also been checked manually with a configured model. Model availability and quota can change.
@@ -151,8 +158,38 @@ $env:PLAYWRIGHT_CHANNEL="chrome"
 npm run test:e2e
 ```
 
+## Render deployment
+
+The existing service is **ClauseIQ**, connected to this repository's `main` branch. Successful pushes to `main` trigger automatic deployment.
+
+To reproduce this setup in Render, create a **Web Service** from the repository with these settings:
+
+| Setting | Value |
+| --- | --- |
+| Runtime | Docker |
+| Branch | `main` |
+| Root directory | Repository root / blank |
+| Dockerfile path | `./Dockerfile.render` |
+| Docker build context | Repository root / `.` |
+| Docker command override | Leave blank to use the image's default command |
+| Health check | `/health` |
+| Instance | Free |
+
+Set these environment variables privately in Render:
+
+| Variable | Purpose |
+| --- | --- |
+| `GEMINI_API_KEY` | Google AI Studio API key, stored only in Render's environment settings |
+| `GEMINI_MODEL` | `gemini-3.1-flash-lite`, or another model available to the API project |
+
+Render supplies `PORT` automatically. Do not upload `.env` or commit the API key. After changing environment variables, save and deploy the service.
+
+`Dockerfile.render` builds the frontend with Node 24 and includes the built assets, backend, and supplied document data in one runtime image. Its default command is `node server/production.mjs`. Use this Dockerfile on Render; the regular `Dockerfile` and `compose.yaml` are for the separate frontend/API containers used locally. Running only the regular frontend image on Render fails because its Nginx configuration expects the Compose service named `api`.
+
+Deployment checks include Render's Live status, `GET /health`, `GET /api/health`, frontend rendering, and a hosted Gemini question. `/api/health` reports whether Gemini is configured without exposing the key. Browser review actions remain available if the AI provider is temporarily unavailable.
+
 ## Deployment scope
 
-Containers run without root, with read-only filesystems, dropped capabilities, and no privilege escalation. Nginx sets restrictive response headers and has a frontend health check. The API limits request size, request frequency, concurrent requests, and provider timeouts; errors avoid returning credentials or raw provider details.
+Both runtime images use non-root users. Local Compose additionally specifies read-only filesystems, dropped capabilities, and no privilege escalation. Nginx provides security headers for local Docker; the single-service production server sets its own headers and serves files only from the frontend build directory. The API limits request size, request frequency, concurrent requests, and provider timeouts; errors avoid returning credentials or raw provider details.
 
-This setup is intended for local assessment/demo use. For public deployment, add HTTPS, authentication, durable per-user quotas, and monitoring. The current rate cap is in memory. The bundled contract and sample findings are readable by anyone who can load the app. Gemini actions send contract context to Google; sample review does not require external AI calls.
+The live site is an assessment/demo deployment with HTTPS provided by Render. Authentication, durable per-user quotas, and shared review storage are not implemented. The current rate cap is in memory and shared by requests to the running process. The bundled contract and sample findings are readable by anyone who can load the app. Gemini actions send contract context to Google; sample review does not require external AI calls.
