@@ -1,14 +1,98 @@
 import http from 'node:http';
 import {analysisInstruction,suggestionInstruction,analysisSchema,normalizeFindings} from './analysis.mjs';
-import { readFileSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
+import { readFileSync, existsSync, statSync, createReadStream } from 'node:fs';
+import { join, extname, normalize } from 'node:path';
+import { pathToFileURL, fileURLToPath } from 'node:url';
+
 const contract=JSON.parse(readFileSync(new URL('../src/data/sample-contract.json',import.meta.url),'utf8'));
 const report=JSON.parse(readFileSync(new URL('../src/data/findings.json',import.meta.url),'utf8'));
+const distDir = fileURLToPath(new URL('../dist', import.meta.url));
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.mjs': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.txt': 'text/plain; charset=utf-8',
+  '.woff2': 'font/woff2'
+};
+
+function serveStatic(req, res) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    res.writeHead(405, { 'Content-Type': 'text/plain' });
+    res.end('Method Not Allowed');
+    return;
+  }
+  let pathname;
+  try {
+    pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
+  } catch {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    res.end('Bad Request');
+    return;
+  }
+  let safePath = normalize(pathname).replace(/^(\.\.[\/\\])+/, '');
+  let filePath = join(distDir, safePath);
+
+  if (!filePath.startsWith(distDir)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' });
+    res.end('Forbidden');
+    return;
+  }
+
+  let stat;
+  try {
+    if (existsSync(filePath)) stat = statSync(filePath);
+  } catch {}
+
+  if (stat && stat.isDirectory()) {
+    filePath = join(filePath, 'index.html');
+    try {
+      if (existsSync(filePath)) stat = statSync(filePath);
+      else stat = null;
+    } catch { stat = null; }
+  }
+
+  if (!stat || !stat.isFile()) {
+    filePath = join(distDir, 'index.html');
+    try {
+      if (existsSync(filePath)) stat = statSync(filePath);
+      else stat = null;
+    } catch { stat = null; }
+  }
+
+  if (!stat || !stat.isFile()) {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Not found' }));
+    return;
+  }
+
+  const ext = extname(filePath).toLowerCase();
+  const contentType = MIME[ext] || 'application/octet-stream';
+  res.writeHead(200, {
+    'Content-Type': contentType,
+    'Content-Length': stat.size,
+    'X-Content-Type-Options': 'nosniff'
+  });
+  if (req.method === 'HEAD') {
+    res.end();
+    return;
+  }
+  createReadStream(filePath).pipe(res);
+}
+
 export function createApi({apiKey=process.env.GEMINI_API_KEY,model=process.env.GEMINI_MODEL||'gemini-3.1-flash-lite',fetcher=fetch}={}){
  let active=0;let requests=[];
  return http.createServer(async(req,res)=>{
   const send=(status,data)=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(data))};
   if(req.method==='GET'&&req.url==='/api/health')return send(200,{configured:!!apiKey,model});
+  if(!req.url.startsWith('/api/')) return serveStatic(req, res);
   if(req.method!=='POST'||!['/api/ask','/api/analyze','/api/suggest'].includes(req.url))return send(404,{error:'Not found'});
   if(req.headers.origin){try{if(new URL(req.headers.origin).host!==req.headers.host)return send(403,{error:'This request is not allowed.'})}catch{return send(403,{error:'Invalid origin.'})}}
   if(!apiKey)return send(503,{error:'Gemini is not configured. Add GEMINI_API_KEY to the server .env file and restart.'});
@@ -32,4 +116,7 @@ export function createApi({apiKey=process.env.GEMINI_API_KEY,model=process.env.G
   }catch(error){send(502,{error:error.name==='TimeoutError'?'Gemini took too long. Please try again.':'Unable to reach Gemini. Please try again.'})}finally{active--}
  });
 }
-if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){createApi().listen(Number(process.env.API_PORT||3001),'0.0.0.0',()=>console.log('Gemini API listening on port '+(process.env.API_PORT||3001)))}
+if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
+ const port = Number(process.env.PORT || process.env.API_PORT || 3001);
+ createApi().listen(port,'0.0.0.0',()=>console.log('ClauseIQ server listening on port '+port));
+}

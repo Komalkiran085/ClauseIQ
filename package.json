@@ -1,9 +1,10 @@
 {
-  "name": "clause-review",
+  "name": "clause-iq",
   "private": true,
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "start": "node server/index.mjs",
     "dev": "node dev.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",

@@ -1,4 +1,4 @@
-# Clause — AI Document Review
+# ClauseIQ — AI Document Review
 
 Clause is a document review workspace for the supplied Northwind Analytics / Brightline master services agreement. Reviewers can inspect risks alongside the contract, record decisions and comments, apply verified replacements, and export their review.
 
@@ -32,7 +32,7 @@ docker compose up --build -d
 docker compose logs --tail=100
 ```
 
-Port 8080 must be available. To change it, add `PORT=8081` to `.env`, recreate the services, and open the new port. The configuration uses multi-platform base images and avoids host-specific mounts. Direct Windows execution and Docker runtime behavior have not been verified in this development environment.
+Port 8080 must be available. To change it, add `PORT=8081` to `.env`, recreate the services, and open the new port. The configuration uses multi-platform base images and avoids host-specific mounts.
 
 ## Local development
 
